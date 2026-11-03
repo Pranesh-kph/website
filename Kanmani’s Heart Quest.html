@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kanmani’s Heart Quest</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,400;1,600&family=Noto+Serif+Tamil:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{--bg1:#14040f;--bg2:#3a0b25;--ruby:#ff3b6b;--gold:#f3b7a6;--text:#fff1ea;--muted:#e6c3c8;--glass:rgba(32,6,24,.6);--line:rgba(243,183,166,.35);
+color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{height:100%;margin:0;overflow:hidden;color:var(--text);font-family:"Cormorant Garamond",Georgia,serif;
+background:radial-gradient(ellipse at 50% 38%,var(--bg2) 0%,var(--bg1) 70%) #14040f;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#stage{position:fixed;left:0;right:0;bottom:0;padding:0 18px calc(26px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;pointer-events:none}
+#card{pointer-events:auto;width:min(560px,100%);text-align:center;padding:26px 26px 22px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+border:1px solid var(--line);border-radius:28px 28px 28px 6px;transition:opacity .45s,transform .45s}
+#card.out{opacity:0;transform:translateY(14px)}
+#card[hidden]{display:none}
+.tamil{font-family:"Noto Serif Tamil",serif;color:var(--gold);font-size:1.05rem;margin:0 0 6px}
+.tamil:empty{display:none}
+h1{font-size:clamp(2rem,7vw,3rem);font-weight:600;font-style:italic;line-height:1.05;margin:0 0 10px}
+p.msg{font-size:clamp(1.15rem,3.6vw,1.4rem);line-height:1.45;margin:0 auto 18px;max-width:34ch;color:var(--muted);font-style:italic}
+.row{display:flex;gap:12px;justify-content:center;align-items:center;min-height:50px}
+button{font:inherit;font-size:1.15rem;font-style:italic;cursor:pointer;border-radius:999px;padding:11px 28px;border:1px solid var(--gold);color:var(--text);background:transparent;touch-action:manipulation}
+button:hover{background:rgba(243,183,166,.14)}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+button.primary{background:linear-gradient(135deg,#ff3b6b,#c2154d);border-color:transparent;box-shadow:0 8px 28px rgba(255,59,107,.35)}
+#no{z-index:5}#no.run{position:fixed}
+#hud{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));left:16px;right:16px;display:flex;align-items:center;gap:14px;pointer-events:none}
+#hud[hidden]{display:none}
+#lvl{font-style:italic;font-size:1.15rem;color:var(--gold);white-space:nowrap}
+#bar{flex:1;height:6px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden}
+#fill{height:100%;width:0;background:linear-gradient(90deg,#f3b7a6,#ff3b6b);transition:width .3s}
+#lives{font-size:1.1rem;color:var(--ruby);letter-spacing:2px;min-width:3.2em;text-align:right}
+#toast{position:fixed;left:50%;top:22%;transform:translateX(-50%);width:min(86vw,460px);text-align:center;font-style:italic;font-size:clamp(1.4rem,5vw,2rem);color:var(--text);
+text-shadow:0 2px 18px #000;opacity:0;transition:opacity .4s;pointer-events:none}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c" aria-hidden="true"></canvas>
+<div id="hud" hidden><span id="lvl"></span><div id="bar"><div id="fill"></div></div><span id="lives"></span></div>
+<div id="toast"></div>
+<div id="stage"><div id="card" role="region" aria-live="polite"><p class="tamil" id="tamil"></p><h1 id="title"></h1><p class="msg" id="msg"></p><div class="row" id="row"></div></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ---------- EDIT YOUR WORDS HERE ---------- */
+const FROM="Pranesh";
+const LV=[
+ {name:"Level 1 · Our good moments",mode:"catch",goal:8,shard:0,speed:2.4,gap:.75,
+  intro:{title:"Level 1",msg:"Slide to catch the hearts. Each one is a good moment we shared."},
+  win:{title:"I’m sorry.",msg:"I made a mistake, and it hurt you. That was never what I wanted for you."}},
+ {name:"Level 2 · Dodge my mistakes",mode:"catch",goal:10,shard:.4,speed:3,gap:.6,lives:3,
+  intro:{title:"Level 2",msg:"Catch the hearts, but dodge the dark shards. They are my mistakes."},
+  win:{title:"You matter more.",msg:"More than my pride, more than being right. I should have shown it when it counted."}},
+ {name:"Level 3 · Mend the heart",mode:"mend",goal:7,
+  intro:{title:"Level 3",msg:"The heart is broken. Tap every fragment to bring it home."},
+  win:{title:"I’m listening now.",msg:"I want to understand how you felt and mend what I broke, not just say sorry."}},
+ {name:"Level 4 · Catch my promises",mode:"catch",goal:3,orb:true,shard:.45,speed:3.5,gap:.55,lives:3,
+  intro:{title:"Level 4",msg:"Catch the three golden promises. The shards are faster now."},
+  win:{title:"These are my promises.",msg:"To say sorry honestly, to choose us over my ego, and to keep earning your trust."}}
+];
+const PROMISES=["I’ll listen before I explain.","I’ll be honest, even when it’s hard.","I’ll choose us, every time."];
+const ASK={title:"So, Kanmani…",msg:"Will you forgive me?"};
+const FINAL={tamil:"நன்றி, கண்மணி",title:"Thank you, my Kanmani.",msg:"I’ll hold this second chance carefully and earn it every day. — "+FROM};
+/* ------------------------------------------ */
+const $=id=>document.getElementById(id), card=$("card"), row=$("row");
+const G={lv:0,count:0,lives:3,items:[],frags:[],t:0,playing:false,done:false};
+let pulse=0,targetX=0;
+
+function show(s){
+  card.classList.add("out");
+  setTimeout(()=>{
+    card.hidden=false;
+    $("tamil").textContent=s.tamil||"";$("title").textContent=s.title;$("msg").textContent=s.msg;
+    row.innerHTML="";const old=$("no");if(old)old.remove();
+    if(s.ask){
+      const y=document.createElement("button");y.className="primary";y.textContent="Yes, I forgive you";y.onclick=yes;
+      const n=document.createElement("button");n.id="no";n.textContent="Not yet";
+      const dodge=e=>{e.preventDefault();
+        if(n.parentElement!==document.body){const r=n.getBoundingClientRect();document.body.appendChild(n);n.style.left=r.left+"px";n.style.top=r.top+"px"}
+        n.classList.add("run");const m=20;
+        n.style.left=m+Math.random()*(innerWidth-n.offsetWidth-2*m)+"px";n.style.top=m+Math.random()*(innerHeight-n.offsetHeight-2*m)+"px";pulse=1};
+      ["pointerenter","pointerdown","focus"].forEach(ev=>n.addEventListener(ev,dodge));
+      row.append(y,n);
+    }else if(s.btn){const b=document.createElement("button");b.className="primary";b.textContent=s.btn;b.onclick=s.fn;row.append(b)}
+    card.classList.remove("out");
+  },s.now?0:450);
+}
+function intro(){const l=LV[G.lv];show({...l.intro,btn:"Play",fn:startLevel,tamil:G.lv?"":"கண்மணி"})}
+function startLevel(){
+  const l=LV[G.lv];G.count=0;G.lives=l.lives||0;G.t=0;G.playing=true;clearItems();
+  card.classList.add("out");setTimeout(()=>{card.hidden=true},450);
+  $("hud").hidden=false;$("lvl").textContent=l.name;hud();
+  if(l.mode==="mend")for(let i=0;i<l.goal;i++){
+    const m=new THREE.Mesh(smallGeo,new THREE.MeshStandardMaterial({color:0x7a1b3a,emissive:0xff3b6b,emissiveIntensity:.35,roughness:.4}));
+    m.scale.setScalar(.38);m.position.set((Math.random()*2-1)*halfW*.8,-1.6+Math.random()*3.8,0);
+    m.userData={ph:Math.random()*6,fly:false};scene.add(m);G.frags.push(m)}
+  player.visible=l.mode==="catch";hero.material.emissiveIntensity=.2;
+}
+function hud(){const l=LV[G.lv];$("fill").style.width=(G.count/l.goal*100)+"%";$("lives").textContent=l.lives?"♥".repeat(G.lives):"";
+  hero.material.emissiveIntensity=.2+G.count/l.goal*1.1}
+function clearItems(){[...G.items,...G.frags].forEach(m=>scene.remove(m));G.items=[];G.frags=[]}
+function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");clearTimeout(toast.h);toast.h=setTimeout(()=>e.classList.remove("on"),2600)}
+function win(){
+  G.playing=false;burst();clearItems();player.visible=false;$("hud").hidden=true;
+  const l=LV[G.lv],last=G.lv===LV.length-1;
+  setTimeout(()=>show({...l.win,btn:last?"Continue":"Next level",fn:()=>{G.lv++;last?show(ASK_S()):intro()},now:true}),900);
+}
+const ASK_S=()=>({...ASK,ask:true,now:true});
+function lose(){G.playing=false;clearItems();player.visible=false;$("hud").hidden=true;
+  show({title:"Oh no.",msg:"Too many shards got through. Breathe, and try again.",btn:"Try again",fn:startLevel})}
+function yes(){G.done=true;show({...FINAL});burst()}
+
+/* ---------- 3D ---------- */
+const renderer=new THREE.WebGLRenderer({canvas:$("c"),antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();scene.fog=new THREE.FogExp2(0x14040f,.04);
+const camera=new THREE.PerspectiveCamera(50,1,.1,100);camera.position.set(0,.4,6.6);camera.lookAt(0,.2,0);
+let halfW=3;
+function heartGeo(d,b){const p=[];for(let i=0;i<=80;i++){const t=i/80*Math.PI*2;p.push(new THREE.Vector2(16*Math.pow(Math.sin(t),3)*.06,(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))*.06))}
+  const g=new THREE.ExtrudeGeometry(new THREE.Shape(p),{depth:d,bevelEnabled:true,bevelThickness:b,bevelSize:b,bevelSegments:8,curveSegments:40});g.center();return g}
+const bigGeo=heartGeo(.5,.18),smallGeo=heartGeo(.25,.1);
+const hero=new THREE.Mesh(bigGeo,new THREE.MeshPhysicalMaterial({color:0xe11d48,roughness:.22,metalness:.15,clearcoat:1,clearcoatRoughness:.15,emissive:0x5a0220,emissiveIntensity:.3}));
+scene.add(hero);
+const player=new THREE.Mesh(smallGeo,new THREE.MeshStandardMaterial({color:0xf3b7a6,roughness:.25,metalness:.5,emissive:0xf3b7a6,emissiveIntensity:.3}));
+player.scale.setScalar(.34);player.visible=false;scene.add(player);
+scene.add(new THREE.AmbientLight(0xffd6dc,.55));
+[[0xff6f91,2.2,3,3,5],[0xf3b7a6,1.6,-4,-1,3],[0x8a3cff,1.1,0,-3,-4]].forEach(a=>{const l=new THREE.PointLight(a[0],a[1],30);l.position.set(a[2],a[3],a[4]);scene.add(l)});
+const pal=[0xff3b6b,0xf3b7a6,0xff8fab,0xc2154d,0xffd6dc],minis=[];
+for(let i=0;i<34;i++){const m=new THREE.Mesh(smallGeo,new THREE.MeshStandardMaterial({color:pal[i%5],roughness:.35,metalness:.2,emissive:pal[i%5],emissiveIntensity:.12}));
+  const r=4+Math.random()*6,a=Math.random()*6.28;m.position.set(Math.cos(a)*r,(Math.random()-.5)*8,-3-Math.random()*5);
+  m.scale.setScalar(.12+Math.random()*.2);m.userData={vy:.15+Math.random()*.3,rot:(Math.random()-.5)};scene.add(m);minis.push(m)}
+function dotTex(){const c=document.createElement("canvas");c.width=c.height=64;const x=c.getContext("2d"),g=x.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,"rgba(255,225,230,1)");g.addColorStop(.4,"rgba(255,140,170,.55)");g.addColorStop(1,"rgba(255,140,170,0)");x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)}
+const pos=new Float32Array(1200);for(let i=0;i<400;i++){pos[i*3]=(Math.random()-.5)*24;pos[i*3+1]=(Math.random()-.5)*14;pos[i*3+2]=-Math.random()*14}
+const pg=new THREE.BufferGeometry();pg.setAttribute("position",new THREE.BufferAttribute(pos,3));
+const stars=new THREE.Points(pg,new THREE.PointsMaterial({size:.2,map:dotTex(),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(stars);
+const bits=[];
+function burst(){for(let i=0;i<80;i++){const m=new THREE.Mesh(smallGeo,new THREE.MeshStandardMaterial({color:pal[i%5],emissive:pal[i%5],emissiveIntensity:.35,transparent:true}));
+  m.position.copy(hero.position);const s=.15+Math.random()*.2;m.scale.setScalar(s);
+  m.userData={v:new THREE.Vector3(Math.random()-.5,Math.random()-.3,Math.random()-.2).normalize().multiplyScalar(2+Math.random()*4),life:0,max:2.5+Math.random()*2,s};scene.add(m);bits.push(m)}}
+const shardGeo=new THREE.TetrahedronGeometry(.3),orbGeo=new THREE.IcosahedronGeometry(.26,1);
+const shardMat=new THREE.MeshStandardMaterial({color:0x2a1030,emissive:0x8a0f2f,emissiveIntensity:.8,roughness:.3,flatShading:true});
+const orbMat=new THREE.MeshStandardMaterial({color:0xffd27a,emissive:0xffb347,emissiveIntensity:.9,roughness:.2,metalness:.6});
+const heartMats=pal.map(c=>new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:.3,roughness:.3}));
+
+function spawn(l){
+  const bad=Math.random()<l.shard;let m;
+  if(bad){m=new THREE.Mesh(shardGeo,shardMat);m.userData={bad:true}}
+  else if(l.orb){m=new THREE.Mesh(orbGeo,orbMat);m.userData={orb:true}}
+  else{m=new THREE.Mesh(smallGeo,heartMats[Math.random()*5|0]);m.scale.setScalar(.26);m.userData={good:true}}
+  m.position.set((Math.random()*2-1)*halfW,3.4,0);m.userData.v=l.speed*(.85+Math.random()*.3);scene.add(m);G.items.push(m);
+}
+/* input */
+addEventListener("pointermove",e=>{targetX=(e.clientX/innerWidth-.5)*2*halfW});
+addEventListener("pointerdown",e=>{targetX=(e.clientX/innerWidth-.5)*2*halfW;
+  if(G.playing&&LV[G.lv].mode==="mend"){
+    const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1),camera);
+    const h=ray.intersectObjects(G.frags.filter(f=>!f.userData.fly));if(h.length){h[0].object.userData.fly=true;pulse=.6}}});
+const keys={};addEventListener("keydown",e=>keys[e.key]=1);addEventListener("keyup",e=>keys[e.key]=0);
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();halfW=Math.max(1.5,3.08*camera.aspect*.9)}
+addEventListener("resize",resize);resize();
+
+const clock=new THREE.Clock(),reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;let spawnT=0;
+function tick(){
+  const dt=Math.min(clock.getDelta(),.05),t=clock.elapsedTime,l=LV[G.lv]||LV[0];
+  const beat=1+Math.max(0,Math.sin(t*2.6))**6*.1+pulse*.12;pulse*=.9;
+  const play=G.playing&&l.mode==="catch";
+  const hs=play||G.playing?.8:1.25,narrow=innerWidth<700;
+  hero.scale.setScalar(hs*(narrow&&!G.playing?.85:1)*beat);
+  hero.position.set(0,G.playing?.6:(narrow?1.3:.55)+Math.sin(t*.9)*.1,G.playing?-2.5:0);
+  hero.rotation.y+=reduce?0:dt*.5;
+  if(G.playing){
+    if(keys.ArrowLeft||keys.a)targetX-=dt*6;if(keys.ArrowRight||keys.d)targetX+=dt*6;
+    targetX=Math.max(-halfW,Math.min(halfW,targetX));
+    if(play){
+      player.position.set(player.position.x+(targetX-player.position.x)*Math.min(1,dt*14),-2.3,0);player.rotation.y+=dt*3;
+      G.t+=dt;if(G.t>l.gap){G.t=0;spawn(l)}
+      for(let i=G.items.length-1;i>=0;i--){const m=G.items[i],u=m.userData;m.position.y-=u.v*dt;m.rotation.y+=dt*2;m.rotation.x+=dt*(u.bad?3:0);
+        if(Math.abs(m.position.x-player.position.x)<.55&&Math.abs(m.position.y-player.position.y)<.5){
+          scene.remove(m);G.items.splice(i,1);pulse=.8;
+          if(u.bad){G.lives--;hud();if(l.lives&&G.lives<=0){lose();break}}
+          else{if(u.orb)toast(PROMISES[G.count%PROMISES.length]);G.count++;hud();if(G.count>=l.goal){win();break}}
+        }else if(m.position.y<-3.3){scene.remove(m);G.items.splice(i,1)}}
+    }else if(l.mode==="mend"){
+      G.frags.forEach(m=>{const u=m.userData;m.rotation.y+=dt*2;
+        if(u.fly){m.position.lerp(hero.position,.1);m.scale.multiplyScalar(.97)}else m.position.y+=Math.sin(t*1.6+u.ph)*dt*.4});
+      for(let i=G.frags.length-1;i>=0;i--){const m=G.frags[i];
+        if(m.userData.fly&&m.position.distanceTo(hero.position)<.5){scene.remove(m);G.frags.splice(i,1);G.count++;hud();pulse=1;if(G.count>=l.goal){win();break}}}
+    }
+  }
+  minis.forEach(m=>{m.position.y+=m.userData.vy*dt*(reduce?.3:1);m.rotation.y+=m.userData.rot*dt;if(m.position.y>4.5)m.position.y=-4.5});
+  stars.rotation.y+=dt*.01;
+  for(let i=bits.length-1;i>=0;i--){const m=bits[i],u=m.userData;u.life+=dt;m.position.addScaledVector(u.v,dt);u.v.multiplyScalar(.985);u.v.y+=dt*.6;
+    m.rotation.x+=dt*2;const f=1-u.life/u.max;m.material.opacity=Math.max(f,0);m.scale.setScalar(u.s*Math.max(f,.01));
+    if(u.life>u.max){scene.remove(m);m.material.dispose();bits.splice(i,1)}}
+  if(G.done&&Math.random()<.006)burst();
+  renderer.render(scene,camera);requestAnimationFrame(tick);
+}
+intro();tick();
+</script>
+</body>
+</html>
